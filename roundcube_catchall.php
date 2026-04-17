@@ -33,6 +33,7 @@ class roundcube_catchall extends rcube_plugin
     {
         $this->rc = rcmail::get_instance();
         $this->load_config('config.inc.php.dist');
+        $this->load_config();
         $this->add_texts('localization/', true);
 
         // Settings UI
