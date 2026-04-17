@@ -64,9 +64,9 @@ class roundcube_catchall extends rcube_plugin
     /**
      * Auto-login startup hook.
      *
-     * When enabled and the request is anonymous, injects the configured
-     * credentials as a synthetic login POST so Roundcube's standard auth
-     * flow takes over. Does nothing once the user is authenticated.
+     * When enabled and the request is anonymous, performs the login
+     * inline via rcmail::login() then redirects to the mail task so the
+     * user never sees the login form.
      *
      * Security: anyone who can reach this Roundcube instance is logged in
      * as the configured identity. In the Home Assistant add-on deployment
@@ -74,7 +74,14 @@ class roundcube_catchall extends rcube_plugin
      */
     public function autologin_startup($args)
     {
+        // Already authenticated — nothing to do.
         if (!empty($_SESSION['user_id'])) {
+            return $args;
+        }
+
+        // Let the user submit the form themselves if they are mid-login.
+        if ($args['task'] === 'login' && $args['action'] === 'login'
+            && $_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['_user'])) {
             return $args;
         }
 
@@ -84,23 +91,28 @@ class roundcube_catchall extends rcube_plugin
             return $args;
         }
 
-        // Only synthesise a login POST on the initial anonymous GET. If the
-        // user is already mid-login (e.g. submitting the form themselves),
-        // leave their request alone.
-        $is_login_post = $args['task'] === 'login'
-            && $args['action'] === 'login'
-            && $_SERVER['REQUEST_METHOD'] === 'POST'
-            && !empty($_POST['_user']);
-        if ($is_login_post) {
-            return $args;
+        // Resolve default IMAP host the same way the login form does.
+        $host = $this->rc->config->get('default_host');
+        if (is_array($host)) {
+            $host = $host[0] ?? array_values($host)[0] ?? 'localhost';
+        }
+        if (empty($host)) {
+            $host = 'localhost';
         }
 
-        $args['action'] = 'login';
-        $args['task']   = 'login';
-        $_POST['_user'] = $user;
-        $_POST['_pass'] = $pass;
-        $_POST['_task'] = 'mail';
-        $_SERVER['REQUEST_METHOD'] = 'POST';
+        // Attempt login. On success, rcmail::login() populates $_SESSION.
+        if ($this->rc->login($user, $pass, $host, true)) {
+            // Redirect to mail task; this exits.
+            $this->rc->output->redirect(['_task' => 'mail']);
+        } else {
+            rcube::raise_error([
+                'code'    => 500,
+                'file'    => __FILE__,
+                'line'    => __LINE__,
+                'message' => "catchall autologin failed for user={$user} host={$host}",
+            ], true, false);
+        }
+
         return $args;
     }
 
