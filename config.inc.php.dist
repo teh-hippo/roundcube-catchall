@@ -34,3 +34,21 @@ $config['catchall_identity_autocreate'] = true;
 
 // Automatically delete aliases when identities are removed
 $config['catchall_fe_auto_delete'] = false;
+
+// =============================================================================
+// Forward Email catch-all password (alternative to per-alias API provisioning)
+// =============================================================================
+// A domain-wide catch-all password allows SMTP authentication as any address on
+// the domain. Generate one at:
+//   https://forwardemail.net/my-account/domains/<domain>/advanced-settings#catch-all-passwords
+//
+// When set, the plugin authenticates SMTP as `<identity-email> + <catch-all-password>`
+// for catch-all identities. This is simpler than the per-alias API approach:
+// no API key is needed and no aliases are created on Forward Email.
+//
+// Stored encrypted in user preferences via Settings UI:
+// $config['catchall_fe_catchall_password'] = '';
+//
+// Plaintext fallback for admin/add-on deployments. Used only when no user-level
+// value is stored. SECURITY: this password can send as any address on the domain.
+// $config['catchall_fe_catchall_password_plain'] = '';

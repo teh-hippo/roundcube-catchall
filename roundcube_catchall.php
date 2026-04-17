@@ -84,6 +84,7 @@ class roundcube_catchall extends rcube_plugin
         $domain  = $this->rc->config->get('catchall_domain', '');
         $auto_create = $this->rc->config->get('catchall_identity_autocreate', true);
         $auto_delete = $this->rc->config->get('catchall_fe_auto_delete', false);
+        $catchall_pass = $this->rc->config->get('catchall_fe_catchall_password', '');
 
         // Decrypt for display (masked)
         $decrypted_key = '';
@@ -95,19 +96,31 @@ class roundcube_catchall extends rcube_plugin
             }
         }
 
+        $masked_pass = '';
+        if ($catchall_pass) {
+            $decrypted_pass = $this->rc->decrypt($catchall_pass);
+            if ($decrypted_pass && strlen($decrypted_pass) > 4) {
+                $masked_pass = str_repeat('*', strlen($decrypted_pass) - 4)
+                    . substr($decrypted_pass, -4);
+            } elseif ($decrypted_pass) {
+                $masked_pass = '****';
+            }
+        }
+
+        // Build clear-password control: checkbox shown only when a password is stored
+        $clear_pass_html = '';
+        if ($catchall_pass) {
+            $clear_pass_html = ' ' . (new html_checkbox([
+                'name'  => '_catchall_fe_clear_catchall_password',
+                'id'    => 'rcmfd_ca_fe_clear_catchall_password',
+                'value' => 1,
+            ]))->show(0) . ' <label for="rcmfd_ca_fe_clear_catchall_password">'
+                . rcube::Q($this->gettext('clear_password')) . '</label>';
+        }
+
         $args['blocks']['main'] = [
             'name' => $this->gettext('settings_main'),
             'options' => [
-                'api_key' => [
-                    'title'   => $this->gettext('api_key'),
-                    'content' => (new html_inputfield([
-                        'name'        => '_catchall_fe_api_key',
-                        'id'          => 'rcmfd_ca_fe_api_key',
-                        'size'        => 40,
-                        'type'        => 'password',
-                        'placeholder' => $decrypted_key ?: $this->gettext('api_key_placeholder'),
-                    ]))->show(''),
-                ],
                 'domain' => [
                     'title'   => $this->gettext('domain'),
                     'content' => (new html_inputfield([
@@ -124,6 +137,32 @@ class roundcube_catchall extends rcube_plugin
                         'id'    => 'rcmfd_ca_identity_autocreate',
                         'value' => 1,
                     ]))->show($auto_create ? 1 : 0),
+                ],
+                'catchall_password' => [
+                    'title'   => $this->gettext('catchall_password'),
+                    'content' => (new html_inputfield([
+                        'name'        => '_catchall_fe_catchall_password',
+                        'id'          => 'rcmfd_ca_fe_catchall_password',
+                        'size'        => 40,
+                        'type'        => 'password',
+                        'placeholder' => $masked_pass ?: $this->gettext('catchall_password_placeholder'),
+                    ]))->show('') . $clear_pass_html,
+                ],
+            ],
+        ];
+
+        $args['blocks']['fe_api'] = [
+            'name' => $this->gettext('settings_fe'),
+            'options' => [
+                'api_key' => [
+                    'title'   => $this->gettext('api_key'),
+                    'content' => (new html_inputfield([
+                        'name'        => '_catchall_fe_api_key',
+                        'id'          => 'rcmfd_ca_fe_api_key',
+                        'size'        => 40,
+                        'type'        => 'password',
+                        'placeholder' => $decrypted_key ?: $this->gettext('api_key_placeholder'),
+                    ]))->show(''),
                 ],
                 'auto_delete' => [
                     'title'   => $this->gettext('auto_delete'),
@@ -152,10 +191,19 @@ class roundcube_catchall extends rcube_plugin
         $domain  = rcube_utils::get_input_string('_catchall_domain', rcube_utils::INPUT_POST);
         $auto_create = rcube_utils::get_input_string('_catchall_identity_autocreate', rcube_utils::INPUT_POST);
         $auto_delete = rcube_utils::get_input_string('_catchall_fe_auto_delete', rcube_utils::INPUT_POST);
+        $catchall_pass = rcube_utils::get_input_string('_catchall_fe_catchall_password', rcube_utils::INPUT_POST);
+        $clear_pass = rcube_utils::get_input_string('_catchall_fe_clear_catchall_password', rcube_utils::INPUT_POST);
 
         // Only update API key if user entered a new one (not blank)
         if ($api_key !== '') {
             $args['prefs']['catchall_fe_api_key'] = $this->rc->encrypt($api_key);
+        }
+
+        // Catch-all password: clear if checkbox checked, update if new value entered
+        if ($clear_pass) {
+            $args['prefs']['catchall_fe_catchall_password'] = '';
+        } elseif ($catchall_pass !== '') {
+            $args['prefs']['catchall_fe_catchall_password'] = $this->rc->encrypt($catchall_pass);
         }
 
         $args['prefs']['catchall_domain']      = trim($domain);
@@ -401,16 +449,38 @@ class roundcube_catchall extends rcube_plugin
             return $args;
         }
 
-        $creds = $this->get_smtp_credentials((string) $identity_id);
+        $identity_email = strtolower($identity['email'] ?? '');
 
+        // 1. Per-alias stored credentials (highest priority)
+        $creds = $this->get_smtp_credentials((string) $identity_id);
         if ($creds) {
             $args['smtp_user'] = $creds['username'];
             $args['smtp_pass'] = $creds['password'];
-            rcube::console("catchall: using SMTP credentials for {$creds['username']}");
-        } else {
-            rcube::console("catchall: no stored SMTP credentials for identity {$identity_id} ({$identity['email']})");
+            rcube::console("catchall: using per-alias SMTP credentials for {$creds['username']}");
+            return $args;
         }
 
+        // 2. If identity matches the authenticated mailbox, default auth works
+        $login_user = strtolower((string) $this->rc->user->get_username());
+        if ($identity_email === $login_user) {
+            return $args;
+        }
+
+        // 3. Catch-all password for other same-domain identities
+        $domain = $this->get_domain();
+        $catchall_pass = $this->get_catchall_password();
+        if ($catchall_pass && $domain) {
+            $parts = explode('@', $identity_email);
+            if (count($parts) === 2 && strtolower($parts[1]) === strtolower($domain)) {
+                $args['smtp_user'] = $identity_email;
+                $args['smtp_pass'] = $catchall_pass;
+                rcube::console("catchall: using catch-all password for {$identity_email}");
+                return $args;
+            }
+        }
+
+        // 4. Default Roundcube SMTP auth (fallthrough)
+        rcube::console("catchall: no SMTP credentials for identity {$identity_id} ({$identity_email}), using default auth");
         return $args;
     }
 
@@ -736,5 +806,21 @@ class roundcube_catchall extends rcube_plugin
             return $derived ?: null;
         }
         return null;
+    }
+
+    /**
+     * Get decrypted catch-all password.
+     * Priority: encrypted user pref → plaintext admin config → null.
+     */
+    private function get_catchall_password(): ?string
+    {
+        $encrypted = $this->rc->config->get('catchall_fe_catchall_password', '');
+        if ($encrypted) {
+            $decrypted = $this->rc->decrypt($encrypted);
+            return $decrypted ?: null;
+        }
+
+        $plain = $this->rc->config->get('catchall_fe_catchall_password_plain', '');
+        return $plain ?: null;
     }
 }
