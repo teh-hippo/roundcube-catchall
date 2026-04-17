@@ -23,19 +23,19 @@ many different local-parts on a domain (e.g. `anything@example.com`).
 ### Via Composer (once published)
 
 ```bash
-composer require teh-hippo/catchall
+composer require teh-hippo/roundcube-catchall
 ```
 
-Then add `catchall` to the `plugins` array in your Roundcube config.
+Then add `roundcube_catchall` to the `plugins` array in your Roundcube config.
 
 ### Manual
 
 ```bash
 cd /path/to/roundcube/plugins
-git clone https://github.com/teh-hippo/roundcube-catchall.git catchall
+git clone https://github.com/teh-hippo/roundcube-catchall.git roundcube_catchall
 ```
 
-Add `catchall` to `$config['plugins']` in `config/config.inc.php`.
+Add `roundcube_catchall` to `$config['plugins']` in `config/config.inc.php`.
 
 ## Configuration
 

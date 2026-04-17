@@ -19,7 +19,7 @@
  * @author  teh-hippo
  * @license MIT
  */
-class catchall extends rcube_plugin
+class roundcube_catchall extends rcube_plugin
 {
     public $task = 'settings|mail|login';
 
