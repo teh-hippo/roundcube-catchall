@@ -93,7 +93,11 @@ class roundcube_catchall extends rcube_plugin
         }
 
         // Resolve default IMAP host the same way the login form does.
-        $host = $this->rc->config->get('default_host');
+        // Roundcube 1.6+ uses `imap_host`; older versions used `default_host`.
+        $host = $this->rc->config->get('imap_host');
+        if (empty($host)) {
+            $host = $this->rc->config->get('default_host');
+        }
         if (is_array($host)) {
             $host = $host[0] ?? array_values($host)[0] ?? 'localhost';
         }
