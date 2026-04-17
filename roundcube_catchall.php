@@ -327,9 +327,6 @@ class roundcube_catchall extends rcube_plugin
         $domain = $this->get_domain();
         $api_key = $this->get_api_key();
 
-        if (!$domain) {
-            return $args;
-        }
         // api_key is optional. When absent we operate in "shared credential"
         // mode: the user has a wildcard alias on Forward Email whose SMTP
         // credentials are used for all outbound (typically via autologin).
@@ -376,9 +373,15 @@ class roundcube_catchall extends rcube_plugin
             return $args;
         }
 
-        // Only act on addresses matching our domain
         $parts = explode('@', $delivered_to);
-        if (count($parts) !== 2 || strtolower($parts[1]) !== strtolower($domain)) {
+        if (count($parts) !== 2) {
+            return $args;
+        }
+
+        // If a domain is configured, restrict to it. Otherwise, treat every
+        // Delivered-To / X-Original-To as the catch-all scope — the fact
+        // that the message landed in this mailbox is sufficient proof.
+        if ($domain && strtolower($parts[1]) !== strtolower($domain)) {
             return $args;
         }
 
