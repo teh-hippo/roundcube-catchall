@@ -114,6 +114,14 @@ class roundcube_catchall extends rcube_plugin
 
         // Attempt login. On success, rcmail::login() populates $_SESSION.
         if ($this->rc->login($user, $pass, $host, true)) {
+            // Mirror what Roundcube's login controller does after rcmail::login()
+            // so the session survives subsequent requests.
+            $this->rc->session->remove('temp');
+            $this->rc->session->regenerate_id(false);
+            $this->rc->session->set_auth_cookie();
+            $this->rc->log_login();
+
+            rcube::write_log('errors', 'catchall autologin succeeded, redirecting to mail');
             // Redirect to mail task; this exits.
             $this->rc->output->redirect(['_task' => 'mail']);
         } else {
